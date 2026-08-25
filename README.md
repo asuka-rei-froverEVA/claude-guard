@@ -7,11 +7,11 @@ Claude 守护是一套 Claude Code 双通道版本与启动策略。它让官方
 通道保持严格、可审计和固定版本，同时允许本机 CC Switch 通道独立跟进较新的
 Claude Code 工程能力。两条通道共享客户端形态，但不共享 profile 和路由。
 
-当前版本：`2.0.4`
+当前版本：`2.1.0`
 
 > 本项目不是 Anthropic 或 Claude Code 官方项目。
 
-## v2.0 稳定升级架构
+## v2.1 稳定升级架构
 
 | 入口 | 用途 | Profile | 请求目标 | 客户端策略 | 生命周期策略 |
 | --- | --- | --- | --- | --- | --- |
@@ -25,6 +25,8 @@ Claude Code 工程能力。两条通道共享客户端形态，但不共享 prof
 - CC Switch 通道不加载官方 profile 或文件凭据。macOS Keychain 是系统级边界，
   因此最终以实际 endpoint 和进程身份验证为准，不把“文件不存在”当作唯一证明。
 - 官方通道继续检查出口 IP、HTTP CONNECT、TLS issuer、IPv6 和生命周期策略。
+- 官方通道允许 Anthropic 官方功能开关下发，以支持内建 `/design` 等分阶段能力；
+  自动更新、错误上报、反馈命令和会话质量问卷仍分别关闭。
 - CC Switch 通道检查客户端身份、本机 endpoint、监听进程路径、签名、Bundle ID、
   应用版本、profile 路由和 credentials 污染；它不会把第三方兼容链路描述成
   Anthropic 官方链路。
@@ -114,6 +116,38 @@ Claude 守护只做本地启动前检查和 dry-run 观察。它不做：
 请只在符合服务条款和本地法规的场景中使用。守门程序只能降低本机配置和进程生命周期风险，不能保证账号不会被限制，也不能把换号绕过封禁变成合规行为。
 
 ## 版本历史
+
+### 2.1.0 - 官方能力通道兼容
+
+`2.1.0` 修正了一组隐私总开关与新版内建能力之间的冲突。Claude Code 官方文档
+说明，`DISABLE_TELEMETRY`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`、
+`DO_NOT_TRACK` 和 `DISABLE_GROWTHBOOK` 会停止功能开关下发；这会让已经打包进客户端、
+但按账号分阶段开放的 `/design` 等命令不可见。
+
+主要更新：
+
+- 官方 launcher 不再注入 `DISABLE_TELEMETRY` 与
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`。
+- 额度恢复续跑、Prompt Suggestions、Session Recap、Auto、跨会话消息和
+  Claude.ai connectors 不会被 Guard 一刀切；它们继续按用户设置和账号能力工作。
+- `env -i` 仍从空环境启动，因此父 shell 中四类旧 capability blocker 不会泄漏。
+- 显式设置 `DISABLE_AUTOUPDATER=1`、`DISABLE_UPDATES=1`、
+  `DISABLE_ERROR_REPORTING=1`、`DISABLE_FEEDBACK_COMMAND=1` 和
+  `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1`。
+- IP、TLS/CONNECT、IPv6、官方 endpoint、OAuth、profile、session、客户端固定、
+  生命周期门禁与 watchdog 均保持原样。
+- 生命周期门禁继续约束脱离 TUI 的会话和路由绕过；普通交互能力是否开启与此分开。
+- CC Switch 通道不依赖 Anthropic 官方能力下发，继续保留原有的严格流量关闭策略。
+
+这是明确的隐私取舍：官方通道会恢复 Anthropic 第一方功能开关与相关可用性检查；
+它不是匿名模式。错误上报、主动反馈和问卷仍关闭。客户端包含命令并不代表账号一定
+获得服务端权限，安装或升级后的首次会话也可能只完成开关拉取，下一次启动才显示。
+
+内建 `/design` 与官方 marketplace 中的 `frontend-design` plugin 是两件事：前者是
+Claude Design 画布命令，后者是前端设计提示技能，安装后也不会替代前者。
+
+详细隐私边界、验收方法和回滚说明见
+[`docs/v2.1.0-design-capability.md`](docs/v2.1.0-design-capability.md)。
 
 ### 2.0.4 - 可见性维护
 
