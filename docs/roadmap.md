@@ -1,5 +1,15 @@
 # Roadmap
 
+## v2.1.0
+
+恢复官方客户端的分阶段能力下发，同时保留可精确关闭的非核心上报。
+
+- 官方通道允许 Anthropic 功能开关下发，支持内建 `/design` 等账号侧能力。
+- 清除父环境中的四类 capability blocker，避免旧 shell 配置复发。
+- 继续关闭更新、错误上报、反馈命令和会话质量问卷。
+- 不改变 endpoint、OAuth、profile、session、网络门禁或 watchdog。
+- CC Switch 通道保持不变。
+
 ## v2.0.4
 
 将 `v2.0.3` 的结构化日志变成可直接读取的本地观察面。

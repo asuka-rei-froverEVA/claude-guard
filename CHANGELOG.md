@@ -2,6 +2,22 @@
 
 更完整的版本目标、设计边界和验证说明见 README 的“版本历史”部分。
 
+## 2.1.0 - 2026-08-25
+
+- 官方通道不再注入 `DISABLE_TELEMETRY` 和
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`，恢复 Anthropic 官方功能开关下发，
+  使账号具备权限时可显示内建 `/design` 等分阶段能力。
+- `env -i` 继续清空父 shell；`DISABLE_TELEMETRY`、
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`、`DO_NOT_TRACK` 和
+  `DISABLE_GROWTHBOOK` 的继承残留不会进入 Claude 进程。
+- 改用精确关闭项：继续阻止自动/手动更新、错误上报、反馈命令和会话质量问卷。
+- 明确保留额度恢复续跑、Prompt Suggestions、Session Recap、Auto、跨会话消息和
+  Claude.ai connectors 的正常配置空间，不把官方功能本身当作风险信号。
+- 保持出口 IP、TLS/CONNECT、IPv6、官方 endpoint、OAuth profile、session、客户端
+  版本与哈希、前台生命周期和 dry-run watchdog 策略不变。
+- CC Switch 通道继续使用原有的严格非必要流量策略；本版本不改变其路由或能力。
+- 新增能力通道回归断言和 `v2.1.0` 隐私、兼容、验收与回滚文档。
+
 ## 2.0.4 - 2026-08-01
 
 - 新增离线 `status`，显示总体健康、活动 Claude 会话、watchdog 覆盖、PID 状态、

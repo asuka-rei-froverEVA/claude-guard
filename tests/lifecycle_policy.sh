@@ -65,14 +65,20 @@ chmod +x "$TMP_DIR/bin/curl"
 
 cat >"$TMP_DIR/settings-safe.json" <<'EOF'
 {
+  "autoContinueAtUsageLimit": true,
+  "promptSuggestionEnabled": true,
+  "awaySummaryEnabled": true,
+  "disableClaudeAiConnectors": false,
   "disableAgentView": true,
   "disableRemoteControl": true,
   "disableDeepLinkRegistration": "disable",
   "disableAllHooks": true,
   "disableWorkflows": true,
   "env": {
-    "DISABLE_TELEMETRY": "1",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "DISABLE_FEEDBACK_COMMAND": "1",
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
     "DISABLE_UPDATES": "1",
     "CLAUDE_CODE_DISABLE_AGENT_VIEW": "1",
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
@@ -211,9 +217,27 @@ if run_guard --bg test >"$TMP_DIR/cli-background.out" 2>&1; then
 fi
 grep -q '后台会话已禁用' "$TMP_DIR/cli-background.out"
 
-run_guard --model future-model --fake-run >"$TMP_DIR/launch.out" 2>&1
+# Normal first-party interaction features are compatible with lifecycle hardening.
+jq -e '
+  .autoContinueAtUsageLimit == true and
+  .promptSuggestionEnabled == true and
+  .awaySummaryEnabled == true and
+  .disableClaudeAiConnectors == false
+' "$TMP_DIR/settings-safe.json" >/dev/null
+
+(
+  export DISABLE_TELEMETRY=1
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+  export DO_NOT_TRACK=1
+  export DISABLE_GROWTHBOOK=1
+  run_guard --model future-model --fake-run
+) >"$TMP_DIR/launch.out" 2>&1
 grep -qx 'future-model' "$TMP_DIR/fake-claude.args"
 for expected in \
+  'DISABLE_AUTOUPDATER=1' \
+  'DISABLE_ERROR_REPORTING=1' \
+  'DISABLE_FEEDBACK_COMMAND=1' \
+  'CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1' \
   'CLAUDE_CODE_DISABLE_AGENT_VIEW=1' \
   'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1' \
   'CLAUDE_CODE_DISABLE_CRON=1' \
@@ -225,6 +249,16 @@ for expected in \
   'CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=3' \
   'DISABLE_UPDATES=1'; do
   grep -qx "$expected" "$TMP_DIR/fake-claude.env"
+done
+for removed in \
+  'DISABLE_TELEMETRY' \
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' \
+  'DO_NOT_TRACK' \
+  'DISABLE_GROWTHBOOK'; do
+  if grep -q "^${removed}=" "$TMP_DIR/fake-claude.env"; then
+    printf 'broad capability-blocking flag leaked into Claude environment: %s\n' "$removed" >&2
+    exit 1
+  fi
 done
 if grep -q '^CLAUDE_CODE_RETRY_WATCHDOG=' "$TMP_DIR/fake-claude.env"; then
   printf 'retry watchdog leaked into Claude environment\n' >&2
