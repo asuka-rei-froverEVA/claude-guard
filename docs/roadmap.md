@@ -1,5 +1,14 @@
 # Roadmap
 
+## v2.1.1
+
+恢复 TUI 生命周期内的 background subagent/Bash，同时继续禁止 detached session。
+
+- 移除 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`。
+- 保留 Agent View、`--bg`、Remote Control、cron、workflows 和退出 handoff 禁用。
+- 保留子代理嵌套深度 `1`、并发上限 `3`。
+- 使用无模型背景任务完成真实 TUI 退出清理验收。
+
 ## v2.1.0
 
 恢复官方客户端的分阶段能力下发，同时保留可精确关闭的非核心上报。

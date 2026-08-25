@@ -29,7 +29,7 @@ claude-guard [claude args...]
 3. 检查官方 settings 文件存在。
 4. 检查官方 settings 不含反代/base URL/托管 token 残留。
 5. 检查默认 `~/.claude` 是否存在旧 CC Switch 残留，默认只警告。
-6. 检查官方 settings 已关闭后台会话、后台任务、排程、工作流、Remote Control、deep link、hooks 和自动更新。
+6. 检查官方 settings 允许 TUI 内后台任务，同时关闭脱离终端的后台会话、排程、工作流、Remote Control、deep link、hooks 和自动更新。
 7. 检查当前项目 settings 没有改写官方路由、凭据、证书、provider、retry 或生命周期策略。
 8. 检查 CLI 参数没有覆盖 settings 或开启后台/Remote Control。
 9. 检查原始 Claude Code 客户端版本、SHA-256、macOS Team ID 和已知 date/time watermark 逻辑。

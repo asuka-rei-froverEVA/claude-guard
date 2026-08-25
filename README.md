@@ -7,7 +7,7 @@ Claude 守护是一套 Claude Code 双通道版本与启动策略。它让官方
 通道保持严格、可审计和固定版本，同时允许本机 CC Switch 通道独立跟进较新的
 Claude Code 工程能力。两条通道共享客户端形态，但不共享 profile 和路由。
 
-当前版本：`2.1.0`
+当前版本：`2.1.1`
 
 > 本项目不是 Anthropic 或 Claude Code 官方项目。
 
@@ -15,7 +15,7 @@ Claude Code 工程能力。两条通道共享客户端形态，但不共享 prof
 
 | 入口 | 用途 | Profile | 请求目标 | 客户端策略 | 生命周期策略 |
 | --- | --- | --- | --- | --- | --- |
-| `claude` / `claude-official` | 官方 Claude 模型 | 显式固定的稳定官方 profile | `api.anthropic.com` | 固定经过验包的版本 | 前台 fail-closed |
+| `claude` / `claude-official` | 官方 Claude 模型 | 显式固定的稳定官方 profile | `api.anthropic.com` | 固定经过验包的版本 | TUI 内后台任务可用，脱离终端 fail-closed |
 | `claude-cc` | 本机 CC Switch 兼容链路 | 独立 CC Switch profile | 固定 loopback endpoint | 独立跟进经过验包的新版本 | 保留工程能力 |
 
 核心边界：
@@ -84,7 +84,7 @@ fail-closed 策略和运行中 dry-run guardian。启动 Claude Code 前会检�
 - 可选要求官方 settings 不固定 `model`，让客户端升级后使用新的模型选择结果；
   单次模型选择仍可通过 `--model` 显式传入。
 - 客户端版本、SHA-256，以及 macOS 上可选的 Anthropic Team ID 是否与安全配置一致。
-- 官方 settings 是否明确关闭 background agents、background tasks、cron、dynamic workflows、Remote Control、deep-link registration 和自动更新。
+- 官方 settings 是否允许 TUI 内 background tasks，同时明确关闭 detached background agents、cron、dynamic workflows、Remote Control、deep-link registration 和自动更新。
 - 当前项目的 `.claude/settings.json` / `.claude/settings.local.json` 是否试图覆盖官方路由、证书、凭据、重试或生命周期策略。
 - 命令行是否试图通过 `--settings`、`--setting-sources`、`--bg`、`agents` 或 `remote-control` 绕过守门。
 - `blocked_plugins` 中列出的、已知会使用 detached process 的插件是否被启用。
@@ -116,6 +116,25 @@ Claude 守护只做本地启动前检查和 dry-run 观察。它不做：
 请只在符合服务条款和本地法规的场景中使用。守门程序只能降低本机配置和进程生命周期风险，不能保证账号不会被限制，也不能把换号绕过封禁变成合规行为。
 
 ## 版本历史
+
+### 2.1.1 - TUI 内后台子代理
+
+`2.1.1` 把两类生命周期拆开处理：当前 TUI 内的 background subagent/Bash 可以并行，
+但 Agent View、`--bg`、`/background` 和 supervisor 等脱离终端的会话继续关闭。
+
+主要更新：
+
+- 不再注入或要求 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`。
+- 恢复 subagent/Bash 的 `run_in_background`、自动后台化入口和 `Ctrl+B`。
+- 继续要求 `disableAgentView=true`、`CLAUDE_CODE_DISABLE_AGENT_VIEW=1`，并拒绝
+  `claude agents`、`--bg`、`/background`、Remote Control 和 tmux 脱离入口。
+- 子代理最多并发 `3` 个、嵌套深度 `1`；退出 handoff、cron、workflows 和 MCP
+  自动后台化仍关闭。
+- 真实 TUI 使用无模型 background Bash 验收，退出后不得留下任务、Claude 或 Guard。
+
+该 Claude Code 公共开关同时控制 background subagent、background Bash、自动后台化
+和 `Ctrl+B`，不能只恢复其中一项。详细边界和回滚见
+[`docs/v2.1.1-tui-background-subagents.md`](docs/v2.1.1-tui-background-subagents.md)。
 
 ### 2.1.0 - 官方能力通道兼容
 
@@ -647,10 +666,11 @@ CLAUDE_GUARD_LOG_MAX_BYTES=1048576
 
 ## 生命周期 Fail-Closed
 
-官方通道从 `v0.2.4` 起默认要求：
+官方通道从 `v2.1.1` 起默认要求：
 
 - `claude agents`、`--bg`、`/background` 和 on-demand supervisor 关闭。
-- Bash/subagent 后台任务、自动后台化和 `Ctrl+B` 关闭。
+- 当前 TUI 内的 Bash/subagent 后台任务、`run_in_background` 和 `Ctrl+B` 可用；
+  它们必须随前台 TUI 退出而终止。
 - cron、dynamic workflows、Remote Control 和 deep-link registration 关闭。
 - MCP 长调用的自动后台化关闭。
 - 自动更新和手动自更新关闭，由维护者先验包后再更新固定版本。
@@ -658,7 +678,7 @@ CLAUDE_GUARD_LOG_MAX_BYTES=1048576
 - 子代理嵌套深度为 `1`，同时运行上限为 `3`。
 - 所有 hooks 暂停，避免第三方 hook 在终端退出期间派生独立进程。
 
-这些设置来自 Claude Code 的公开配置接口，不改写请求、不伪装客户端，也不绕过保护措施。代价是不能使用后台 session、Remote Control、dynamic workflows 和 hooks；普通前台交互、内置工具与受限子代理仍可使用。
+这些设置来自 Claude Code 的公开配置接口，不改写请求、不伪装客户端，也不绕过保护措施。代价是不能使用脱离 TUI 的后台 session、Remote Control、dynamic workflows 和 hooks；普通前台交互、内置工具与受限的前台/后台子代理仍可使用。
 
 当前官方 profile 中的 `codex@openai-codex` 插件包含 detached broker/background worker，因此建议列入 `blocked_plugins` 并在该 profile 中关闭。Codex App、Codex CLI 和 `claude-cc` 不受影响。
 

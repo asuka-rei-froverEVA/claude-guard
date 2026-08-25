@@ -85,7 +85,6 @@ cat >"$TMP_DIR/settings-safe.json" <<'EOF'
     "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
     "DISABLE_UPDATES": "1",
     "CLAUDE_CODE_DISABLE_AGENT_VIEW": "1",
-    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
     "CLAUDE_CODE_DISABLE_CRON": "1",
     "CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF": "1",
     "CLAUDE_DISABLE_ADOPT": "1",
@@ -148,6 +147,18 @@ if PATH="$TMP_DIR/bin:$PATH" \
 fi
 grep -q 'CLAUDE_CODE_RETRY_WATCHDOG' "$TMP_DIR/retry-watchdog.out"
 
+jq '.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1"' \
+  "$TMP_DIR/settings-safe.json" >"$TMP_DIR/settings-background-blocked.json"
+if PATH="$TMP_DIR/bin:$PATH" \
+  CLAUDE_GUARD_CONFIG="$TMP_DIR/config.json" \
+  CLAUDE_GUARD_SETTINGS="$TMP_DIR/settings-background-blocked.json" \
+  CLAUDE_GUARD_CA_CERT="$TMP_DIR/cert.pem" \
+  "$ROOT_DIR/bin/claude-guard" --precheck-only >"$TMP_DIR/background-blocked.out" 2>&1; then
+  printf 'TUI background task blocker unexpectedly passed\n' >&2
+  exit 1
+fi
+grep -q 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS' "$TMP_DIR/background-blocked.out"
+
 jq '.client_version = "2.1.219"' "$TMP_DIR/config.json" >"$TMP_DIR/config-wrong-version.json"
 if PATH="$TMP_DIR/bin:$PATH" \
   CLAUDE_GUARD_CONFIG="$TMP_DIR/config-wrong-version.json" \
@@ -208,6 +219,18 @@ fi
 grep -q '项目设置' "$TMP_DIR/project-settings.out"
 rm "$TMP_DIR/project/.claude/settings.json"
 
+printf '{"env":{"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS":"1"}}\n' \
+  >"$TMP_DIR/project/.claude/settings.json"
+if (
+  cd "$TMP_DIR/project"
+  run_guard --precheck-only
+) >"$TMP_DIR/project-background-blocked.out" 2>&1; then
+  printf 'project settings TUI background task blocker unexpectedly passed\n' >&2
+  exit 1
+fi
+grep -q 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS' "$TMP_DIR/project-background-blocked.out"
+rm "$TMP_DIR/project/.claude/settings.json"
+
 if run_guard --settings "$TMP_DIR/settings-unsafe.json" \
   >"$TMP_DIR/cli-settings.out" 2>&1; then
   printf 'CLI settings override unexpectedly passed\n' >&2
@@ -243,7 +266,6 @@ for expected in \
   'DISABLE_FEEDBACK_COMMAND=1' \
   'CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1' \
   'CLAUDE_CODE_DISABLE_AGENT_VIEW=1' \
-  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1' \
   'CLAUDE_CODE_DISABLE_CRON=1' \
   'CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF=1' \
   'CLAUDE_DISABLE_ADOPT=1' \
@@ -254,6 +276,10 @@ for expected in \
   'DISABLE_UPDATES=1'; do
   grep -qx "$expected" "$TMP_DIR/fake-claude.env"
 done
+if grep -q '^CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=' "$TMP_DIR/fake-claude.env"; then
+  printf 'TUI background task blocker leaked into Claude environment\n' >&2
+  exit 1
+fi
 for removed in \
   'DISABLE_TELEMETRY' \
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' \

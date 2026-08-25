@@ -70,6 +70,17 @@ def main() -> int:
         }
     )
 
+    baseline_pids = {
+        line.strip()
+        for line in subprocess.run(
+            ["ps", "-axo", "pid="],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.splitlines()
+        if line.strip()
+    }
+
     pid, master_fd = pty.fork()
     if pid == 0:
         os.execve(str(entry), [str(entry), "--safe-mode"], env)
@@ -129,7 +140,12 @@ def main() -> int:
     for line in processes:
         fields = line.split(maxsplit=3)
         same_process_group = len(fields) >= 3 and fields[2] == str(pgid)
-        if same_process_group or any(marker in line for marker in markers):
+        new_marker_process = (
+            len(fields) >= 4
+            and fields[0] not in baseline_pids
+            and any(marker in line for marker in markers)
+        )
+        if same_process_group or new_marker_process:
             leftovers.append(line)
     if leftovers:
         print("FAIL: Claude lifecycle leftovers detected", file=sys.stderr)

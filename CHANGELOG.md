@@ -17,6 +17,20 @@
 - 新增 `tests/ip_probe_format.sh`，覆盖两种响应体格式、默认值、单源默认下不触碰
   `claude.ai`、curl 部分响应加非零退出，以及 trace 解析结果不在白名单时仍然 fail-closed。
 
+## 2.1.1 - 2026-08-25
+
+- 恢复当前 TUI 内的 background subagent、background Bash、`run_in_background` 和
+  `Ctrl+B`，避免并行调研或长工具任务被强制前台化后阻塞主对话。
+- 继续关闭 Agent View、`claude agents`、`--bg`、`/background`、on-demand
+  supervisor、Remote Control、cron、workflows 和退出 handoff。
+- 移除 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 的 launcher 注入、settings 强制项
+  和项目设置降级判断；保留并发上限 `3` 与嵌套深度 `1`。
+- 新增能力边界回归：TUI background blocker 不得进入 Claude 环境，而 detached
+  CLI 路径仍必须 fail-closed。
+- 实机验收要求使用无模型 background Bash，在 `/exit` 后确认任务、Claude 和 Guard
+  均无残留。
+- 修正终端退出验证脚本：已有的其他 Claude 会话不再被误报为本次测试残留。
+
 ## 2.1.0 - 2026-08-25
 
 - 官方通道不再注入 `DISABLE_TELEMETRY` 和

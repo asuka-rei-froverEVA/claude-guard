@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 
 CONFIG_FILE="${CLAUDE_GUARD_CONFIG:-${SAFE_CLAUDE_CONFIG:-$HOME/.safe-claude-official.json}}"
 OFFICIAL_SETTINGS_OVERRIDE="${CLAUDE_GUARD_SETTINGS:-}"
@@ -102,10 +102,11 @@ Environment:
                               If unset, reads boolean `notify` from the safe config. Default: off.
 
 Lifecycle policy:
-  Background agents, background tasks, cron, workflows, Remote Control,
-  deep-link registration, and automatic updates must be disabled in the
-  official settings file. Project settings and CLI flags cannot override
-  the guarded settings or official Anthropic route.
+  Detached background agents, cron, workflows, Remote Control, deep-link
+  registration, and automatic updates must be disabled in the official
+  settings file. TUI-scoped background Bash and subagents are allowed and
+  must terminate with the foreground session. Project settings and CLI flags
+  cannot override the guarded settings or official Anthropic route.
 
 The config file must contain:
   {
@@ -608,7 +609,6 @@ check_official_settings_policy() {
       if .disableWorkflows != true then "disableWorkflows=true" else empty end,
       if ((.env // {}).DISABLE_UPDATES != "1") then "env.DISABLE_UPDATES=1" else empty end,
       if ((.env // {}).CLAUDE_CODE_DISABLE_AGENT_VIEW != "1") then "env.CLAUDE_CODE_DISABLE_AGENT_VIEW=1" else empty end,
-      if ((.env // {}).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS != "1") then "env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1" else empty end,
       if ((.env // {}).CLAUDE_CODE_DISABLE_CRON != "1") then "env.CLAUDE_CODE_DISABLE_CRON=1" else empty end,
       if ((.env // {}).CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF != "1") then "env.CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF=1" else empty end,
       if ((.env // {}).CLAUDE_DISABLE_ADOPT != "1") then "env.CLAUDE_DISABLE_ADOPT=1" else empty end,
@@ -616,6 +616,7 @@ check_official_settings_policy() {
       if ((.env // {}).CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS != "0") then "env.CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0" else empty end,
       if ((.env // {}).CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH != "1") then "env.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1" else empty end,
       if ((.env // {}).CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS != "3") then "env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=3" else empty end,
+      if ((.env // {}) | has("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS")) then "remove env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS" else empty end,
       if (((.env // {}).CLAUDE_AUTO_BACKGROUND_TASKS // "") == "1") then "remove env.CLAUDE_AUTO_BACKGROUND_TASKS=1" else empty end,
       if (((.env // {}).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS // "") == "1") then "remove env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1" else empty end,
       if (((.env // {}).CLAUDE_CODE_RETRY_WATCHDOG // "") != "") then "remove env.CLAUDE_CODE_RETRY_WATCHDOG" else empty end
@@ -630,7 +631,7 @@ check_official_settings_policy() {
   fi
 
   check_blocked_plugins "$OFFICIAL_SETTINGS" "官方 settings"
-  ui_note '生命周期策略通过：后台会话、后台任务、排程、工作流、Remote Control 与自动更新均已关闭。'
+  ui_note '生命周期策略通过：TUI 内后台任务可用；脱离终端的会话、排程、工作流、Remote Control 与自动更新均已关闭。'
 }
 
 project_settings_files() {
@@ -668,9 +669,9 @@ check_project_settings_policy() {
         if (.disableAllHooks != null and .disableAllHooks != true) then "disableAllHooks" else empty end,
         if (.disableWorkflows != null and .disableWorkflows != true) then "disableWorkflows" else empty end,
         if (((.env // {}).CLAUDE_CODE_DISABLE_AGENT_VIEW // "1") != "1") then "env.CLAUDE_CODE_DISABLE_AGENT_VIEW" else empty end,
-        if (((.env // {}).CLAUDE_CODE_DISABLE_BACKGROUND_TASKS // "1") != "1") then "env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS" else empty end,
         if (((.env // {}).CLAUDE_CODE_DISABLE_CRON // "1") != "1") then "env.CLAUDE_CODE_DISABLE_CRON" else empty end,
         if (((.env // {}).CLAUDE_CODE_DISABLE_WORKFLOWS // "1") != "1") then "env.CLAUDE_CODE_DISABLE_WORKFLOWS" else empty end,
+        if ((.env // {}) | has("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS")) then "env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS" else empty end,
         if (((.env // {}).CLAUDE_AUTO_BACKGROUND_TASKS // "") == "1") then "env.CLAUDE_AUTO_BACKGROUND_TASKS" else empty end,
         if (((.env // {}).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS // "") == "1") then "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" else empty end
       ]
@@ -1918,7 +1919,6 @@ exec env -i \
   CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY="1" \
   DISABLE_UPDATES="1" \
   CLAUDE_CODE_DISABLE_AGENT_VIEW="1" \
-  CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1" \
   CLAUDE_CODE_DISABLE_CRON="1" \
   CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF="1" \
   CLAUDE_DISABLE_ADOPT="1" \
