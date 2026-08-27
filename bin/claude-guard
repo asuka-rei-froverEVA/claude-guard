@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.1"
+VERSION="2.1.2"
 
 CONFIG_FILE="${CLAUDE_GUARD_CONFIG:-${SAFE_CLAUDE_CONFIG:-$HOME/.safe-claude-official.json}}"
 OFFICIAL_SETTINGS_OVERRIDE="${CLAUDE_GUARD_SETTINGS:-}"

@@ -1,5 +1,15 @@
 # Roadmap
 
+## v2.1.2
+
+让出口探测与 API 流量走同一条分流策略，并把 Windows 上的门禁失败讲清楚。
+
+- 默认探测端点改为 `api.anthropic.com/cdn-cgi/trace`，去掉第三方 IP 查询依赖。
+- 默认不配兜底域名，主端点探不到即 fail-closed。
+- 探测保留 curl 退出状态，不采信超时截断的部分响应。
+- Schannel 后端明确报平台不兼容，不静默降级、不重试、不谎报尝试次数。
+- README 增加平台支持说明。
+
 ## v2.1.1
 
 恢复 TUI 生命周期内的 background subagent/Bash，同时继续禁止 detached session。

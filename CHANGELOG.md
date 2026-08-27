@@ -2,7 +2,7 @@
 
 更完整的版本目标、设计边界和验证说明见 README 的“版本历史”部分。
 
-## Unreleased
+## 2.1.2 - 2026-08-27
 
 - 出口 IP 探测改为默认只使用 `api.anthropic.com/cdn-cgi/trace`，不再默认依赖
   `ipinfo.io` / `api.ipify.org`。按规则分流的代理（Clash、Mihomo、Surge 等）依目标
@@ -26,6 +26,16 @@
 - 新增 `tests/tls_backend_platform.sh`，覆盖 Schannel 在 curl 退出码 0 和 60 两种形态下
   的行为：退出码仍是 7、报错指名后端、不回落到含糊文案、不重试、不声称重试过。fixture
   直接复用 `config/official-settings-lifecycle.example.json`，生命周期策略升级时不会过期。
+
+本版**改变了出口 IP 探测的网络行为**：默认探测端点从 `ipinfo.io` / `api.ipify.org`
+换成 `api.anthropic.com/cdn-cgi/trace`，且不再配置兜底域名。探测频率、失败阈值、
+`allowed_ips` 语义、OAuth profile、session、客户端版本与哈希、生命周期策略和
+CC Switch 通道行为均不变。已显式设置 `CLAUDE_GUARD_IP_CHECK_URLS` 或
+`CLAUDE_OFFICIAL_IP_CHECK_URLS` 的用户不受影响。
+
+原先依赖默认值、且代理规则里没有把 `api.anthropic.com` 指向固定出口的部署，升级后
+可能在启动期以 `exit 3` 被拒——这是设计意图：此前量到的出口本就与 Claude 实际链路
+无关，通过检查只是假象。
 
 ## 2.1.1 - 2026-08-25
 
