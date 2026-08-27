@@ -406,6 +406,39 @@ watchdog 或 Claude Code 启动参数。
 - 不管理 Claude Code 进程生命周期。
 - 不替代用户的代理、VPN 或 Clash/Mihomo 配置。
 
+## 平台支持
+
+| 平台 | 状态 | 说明 |
+| --- | --- | --- |
+| macOS | 已验证 | 开发与回归测试环境 |
+| Linux | 预期可用 | 需要把 `CLAUDE_GUARD_CA_CERT` 指向本机 CA bundle，默认值 `/etc/ssl/cert.pem` 是 macOS 路径 |
+| Windows（原生） | 不支持 | 见下 |
+
+Windows 原生 curl（以及任何使用 Schannel TLS 后端的 curl）跑不了启动门禁的 TLS 检查。
+原因不是某个字符串没匹配上：`check_tls_host` 要从 curl 的 verbose 输出里读出证书的
+`issuer:`，再拿它匹配 Charles、Fiddler、Zscaler 这类 MITM 特征——TLS 预检存在的理由就是
+这个检查。Schannel 既不打印 `SSL certificate verify ok`，也不打印 `issuer:`，所以放宽匹配
+并不能恢复检查，只会把这一步变成什么都不查的空步骤。因此这里选择明确报错，不做静默降级。
+
+判断方法：`curl -V`，第一行末尾会写 SSL 后端。如果是 `Schannel`，有两条路：
+
+**1）改用 OpenSSL 编译的 curl。** MSYS2 的 `mingw-w64-x86_64-curl`，或确认 PATH 里
+Git for Windows 的 `mingw64\bin\curl.exe` 排在 `C:\Windows\System32\curl.exe` 前面。
+注意换完还有一个坑：Schannel 会忽略 `SSL_CERT_FILE`，换成 OpenSSL 后它就生效了，因此需要
+设 `CLAUDE_GUARD_CA_CERT` 指向真实 CA bundle，Git for Windows 一般在
+`C:\Program Files\Git\mingw64\etc\ssl\certs\ca-bundle.crt`。
+
+**2）用 WSL2。** 两处要额外配：
+
+- 代理：WSL2 有独立网络命名空间，里面的 `127.0.0.1:7897` 不是 Windows 上的 Clash。
+  要么在 `.wslconfig` 里开 `networkingMode=mirrored`（Windows 11），要么在 Clash 开
+  「允许局域网连接」后设
+  `CLAUDE_GUARD_PROXY=http://$(ip route show default | awk '{print $3}'):7897`。
+- CA：`CLAUDE_GUARD_CA_CERT=/etc/ssl/certs/ca-certificates.crt`。
+
+两条路都不要在安全配置里填 `client_macos_team_id`——签名校验走 macOS `codesign`，
+在非 Darwin 平台会直接判失败。
+
 ## 安装
 
 ```bash

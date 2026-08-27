@@ -16,6 +16,16 @@
   28）吐出包含 `ip=` 的部分响应体时不再被采信，改为按探测失败处理。
 - 新增 `tests/ip_probe_format.sh`，覆盖两种响应体格式、默认值、单源默认下不触碰
   `claude.ai`、curl 部分响应加非零退出，以及 trace 解析结果不在白名单时仍然 fail-closed。
+- TLS 预检遇到 Schannel（Windows 原生）后端的 curl 时，报错改为明确指出平台不兼容，
+  跳过无意义的重试，并且不再谎报尝试次数。后端识别先于 curl 退出码判定——Schannel 在
+  证书校验失败时同样会以非零码退出，那时报「无法连接或验证证书」会把平台限制说成网络
+  或代理问题。Schannel 不输出证书验证结果和 issuer，`check_tls_host` 的 MITM 检测无法
+  执行；**不做静默降级**，放宽匹配只会把这一步变成什么都不查的空步骤。
+- README 新增「平台支持」一节：macOS 已验证，Linux 需自行设置 `CLAUDE_GUARD_CA_CERT`
+  （默认值 `/etc/ssl/cert.pem` 是 macOS 路径），Windows 原生不支持并给出两条绕行方案。
+- 新增 `tests/tls_backend_platform.sh`，覆盖 Schannel 在 curl 退出码 0 和 60 两种形态下
+  的行为：退出码仍是 7、报错指名后端、不回落到含糊文案、不重试、不声称重试过。fixture
+  直接复用 `config/official-settings-lifecycle.example.json`，生命周期策略升级时不会过期。
 
 ## 2.0.4 - 2026-08-01
 
