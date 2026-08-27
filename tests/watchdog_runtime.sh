@@ -16,7 +16,11 @@ state_dir="$HOME/watchdog-fixture"
 mkdir -p "$state_dir"
 
 # 每次调用都记录 argv，供测试尾部断言首参 -q 与固定 CA bundle。
-printf '%s\n' "$args" >>"$state_dir/curl-argv.log"
+# 用 TAB 分隔逐个参数写入："$*" 会把参数边界抹掉，带空格的 CA 路径下断言会失真。
+{
+  for a in "$@"; do printf '%s\t' "$a"; done
+  printf '\n'
+} >>"$state_dir/curl-argv.log"
 
 increment_counter() {
   local name="$1"
@@ -243,17 +247,34 @@ argv_log="$TMP_DIR/home/watchdog-fixture/curl-argv.log"
   printf 'watchdog fixture recorded no curl invocations\n' >&2
   exit 1
 }
-if awk '$1 != "-q" {print; bad=1} END {exit bad}' "$argv_log"; then
-  :
-else
+if ! awk -F'\t' '$1 != "-q" { print NR ": " $0; bad = 1 } END { exit bad }' "$argv_log"; then
   printf 'every curl invocation must pass -q as the first argument\n' >&2
   exit 1
 fi
 
-# watchdog 的 API 探针（check_api_path_once）必须显式固定 CA bundle。
-if ! grep -q -- '--cacert' <(grep 'https://api.anthropic.com/ *$' "$argv_log"); then
-  printf 'watchdog API probe must pass an explicit --cacert\n' >&2
-  grep 'https://api.anthropic.com/' "$argv_log" >&2
+# watchdog 的 API 探针（check_api_path_once）必须显式固定 CA bundle——而且必须正好是
+# 配置里那一份。只断言 --cacert 出现过，改成任意错误路径也照样通过。
+if ! awk -F'\t' -v want="$TMP_DIR/cert.pem" '
+  {
+    probe = 0
+    for (i = 1; i <= NF; i++) {
+      if ($i == "https://api.anthropic.com/") { probe = 1 }
+    }
+    if (!probe) { next }
+    seen = 1
+    ok = 0
+    for (i = 1; i < NF; i++) {
+      if ($i == "--cacert" && $(i + 1) == want) { ok = 1 }
+    }
+    if (!ok) { print NR ": " $0; bad = 1 }
+  }
+  END {
+    if (!seen) { print "no watchdog API probe was recorded"; exit 1 }
+    exit bad
+  }
+' "$argv_log" >"$TMP_DIR/cacert.err" 2>&1; then
+  printf 'watchdog API probe must pass --cacert "%s"\n' "$TMP_DIR/cert.pem" >&2
+  cat "$TMP_DIR/cacert.err" >&2
   exit 1
 fi
 

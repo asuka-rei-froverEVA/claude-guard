@@ -12,20 +12,37 @@
   `SSL_CERT_FILE`；Schannel 会直接忽略它而使用 Windows 原生证书库，仅设环境变量不足以
   保证用的是配置里指定的那份 CA bundle。
 - 覆盖四条 HTTPS 路径：出口 IP 探测、IPv6 泄漏检查、Anthropic API TLS 预检、watchdog
-  API 探针。`bin/claude-cc` 的本机 endpoint 探针也加了 `-q`（它打 loopback HTTP，
-  不涉及 CA，因此不加 `--cacert`）。
+  API 探针。
+- **`bin/claude-cc` 的本机 endpoint 探针加上 `-q --noproxy '*'`。** 这条 curl 是全项目
+  唯一跑在调用者原始环境里的（`claude-guard` 的每条 curl 都走 `env -i`），`-q` 只挡得住
+  `~/.curlrc`，环境里的 `http_proxy` / `ALL_PROXY` 照样生效。base URL 已被校验为
+  loopback，被代理接管就意味着「端点可达」这个结论由攻击者说了算。curl 是否默认对
+  loopback 绕过代理随版本和构建而异（macOS 8.7.1 实测会绕过，但 man page 未记载此默认，
+  参见 curl/curl#16119），不能依赖。它打的是 loopback HTTP，不涉及 CA，因此不加
+  `--cacert`。
 - 新增 `tests/curl_hardening.sh`：断言**运行时真实 argv** 的首参是 `-q`、四条 HTTPS
-  路径都带精确的 `--cacert`，并用一个忠实模拟 curl 行为的假 curl 复现
+  路径的 `--cacert` 紧跟的下一个参数**严格等于**配置里那份 CA（只断言 `--cacert` 出现过
+  是不够的，换成任意错误路径也照样通过），并用一个忠实模拟 curl 行为的假 curl 复现
   `~/.curlrc` 含 `insecure` 的场景——白名单里正好有伪造响应中的那个 IP，一旦
-  `.curlrc` 生效就会放行，因此断言是紧的。`tests/watchdog_runtime.sh` 同步加上
-  watchdog 路径的 argv 断言。
+  `.curlrc` 生效就会放行，因此断言是紧的。fixture 的 CA 路径**故意带空格**，把参数拼成
+  一行再匹配的写法会在这里失真。
+- `tests/watchdog_runtime.sh` 同步加上 watchdog 路径的 argv 断言（同样按参数边界比较
+  `--cacert` 的值）；`tests/cc_lane.sh` 新增 CC 通道探针的 argv 断言和一个敌意环境回归：
+  `~/.curlrc` 里写 `proxy =`、环境里设 `http_proxy` / `ALL_PROXY`，假 curl 忠实模拟这两个
+  配置来源，一旦探针被引到代理上就记账并让用例失败。
+- 三个 fixture 的 argv 记录一律改为按参数逐个 TAB 分隔写入，不再用 `"$*"` 拼成一行——
+  否则参数边界丢失，带空格的路径下断言会失真。
 - 更正 README「平台支持」里一条错误建议：不能按二进制来源推断 TLS 后端。社区反馈
   Git for Windows 自带的 `mingw64\bin\curl.exe` 在部分版本上同样是 Schannel，仅调整
   PATH 顺序并不保证换到 OpenSSL，一律以 `curl -V` 实际输出为准。
 
 本版**不改变**任何网络目标、探测频率、失败阈值、`allowed_ips` 语义、OAuth profile、
-session、客户端版本与哈希、生命周期策略或 CC Switch 通道行为。它只收紧 curl 自身的
-配置来源与信任锚，不放宽任何一条既有检查。
+session、客户端版本与哈希、生命周期策略或 CC Switch 通道的任何一项校验。它只收紧 curl
+自身的配置来源与信任锚，不放宽任何一条既有检查。
+
+一处**确实改变的网络行为**：CC 通道的本机 endpoint 探针从此一律直连 loopback，不再受
+环境代理或 `~/.curlrc` 里的 `proxy` 影响。这是修复，不是回归——那条 URL 早就被校验为
+loopback，走代理从来就不是预期路径。
 
 如果你的 `~/.curlrc` 里有 `insecure`、`-k`、`proxy` 或自定义 CA 设置，升级后它们不再
 影响 Guard 的探测——这正是本版的目的。

@@ -23,15 +23,46 @@ touch "$self_dir/fake-claude.started"
 EOF
 chmod +x "$TMP_DIR/fake-claude"
 
-cat >"$TMP_DIR/bin/curl" <<'EOF'
+# 假 curl 忠实模拟 curl 的两个配置来源：~/.curlrc（只有 -q 不是首参时才读）和环境里的
+# http_proxy / ALL_PROXY（-q 挡不住）。命令行上的 --noproxy '*' 能同时覆盖这两者。
+# 一旦本机 loopback 探针被引到代理上，探针结果就变成攻击者说了算——所以它记一笔
+# curl.diverted，测试断言这个文件必须始终为空。
+cat >"$TMP_DIR/bin/curl" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "${FAKE_CURL_FAIL:-0}" = "1" ]; then
+log_dir="$TMP_DIR"
+
+{
+  for a in "\$@"; do printf '%s\\t' "\$a"; done
+  printf '\\n'
+} >>"\$log_dir/curl-argv.log"
+
+divert=0
+if [ "\${1:-}" != "-q" ] \
+  && [ -f "\${HOME:-/nonexistent}/.curlrc" ] \
+  && grep -qE '^[[:space:]]*(proxy|-x)[[:space:]]*=' "\$HOME/.curlrc" 2>/dev/null; then
+  divert=1
+fi
+if [ -n "\${http_proxy:-}\${HTTP_PROXY:-}\${all_proxy:-}\${ALL_PROXY:-}" ]; then
+  divert=1
+fi
+prev=''
+for a in "\$@"; do
+  if [ "\$prev" = '--noproxy' ] && [ "\$a" = '*' ]; then
+    divert=0
+  fi
+  prev="\$a"
+done
+if [ "\$divert" -eq 1 ]; then
+  printf 'diverted: %s\\n' "\$*" >>"\$log_dir/curl.diverted"
+fi
+
+if [ "\${FAKE_CURL_FAIL:-0}" = "1" ]; then
   exit 7
 fi
-if printf '%s\n' "$*" | grep -q '/v1/messages'; then
-  printf '%s' "${FAKE_CURL_STATUS:-405}"
+if printf '%s\\n' "\$*" | grep -q '/v1/messages'; then
+  printf '%s' "\${FAKE_CURL_STATUS:-405}"
 fi
 exit 0
 EOF
@@ -197,5 +228,63 @@ if FAKE_LISTENER_EXE="$TMP_DIR/not-cc-switch" run_cc --precheck-only \
   exit 1
 fi
 grep -q '监听进程身份不匹配' "$TMP_DIR/listener.out"
+
+# ---------------------------------------------------------------------------
+# 本机 loopback 探针的配置隔离（运行时 argv 断言，不是源码 grep）
+#
+# claude-cc 不像 claude-guard 那样走 env -i，这条 curl 跑在调用者的原始环境里：
+# -q 只能挡掉 ~/.curlrc，环境里的 http_proxy / ALL_PROXY 仍然生效。base URL 已被校验
+# 为 loopback，被代理接管就意味着「端点可达」这个结论由攻击者说了算。
+# ---------------------------------------------------------------------------
+mkdir -p "$TMP_DIR/hostile-home/work"
+printf 'proxy = http://127.0.0.1:59999\ninsecure\n' >"$TMP_DIR/hostile-home/.curlrc"
+
+# 在这个临时 HOME 下面跑，免得项目设置的向上遍历（终止于 $HOME）走到真实用户目录。
+(
+  cd "$TMP_DIR/hostile-home/work"
+  HOME="$TMP_DIR/hostile-home" \
+  http_proxy="http://127.0.0.1:59999" \
+  HTTP_PROXY="http://127.0.0.1:59999" \
+  ALL_PROXY="http://127.0.0.1:59999" \
+  run_cc --precheck-only
+) >"$TMP_DIR/hostile.out" 2>&1 || {
+  printf 'hostile proxy env broke the loopback probe\n' >&2
+  cat "$TMP_DIR/hostile.out" >&2
+  exit 1
+}
+grep -q 'CC Switch 通道预检通过' "$TMP_DIR/hostile.out"
+
+argv_log="$TMP_DIR/curl-argv.log"
+[ -s "$argv_log" ] || {
+  printf 'cc lane recorded no curl invocations\n' >&2
+  exit 1
+}
+
+if [ -s "$TMP_DIR/curl.diverted" ]; then
+  printf 'loopback probe was diverted to a proxy:\n' >&2
+  cat "$TMP_DIR/curl.diverted" >&2
+  exit 1
+fi
+
+# 每次调用的第一个参数都必须是 -q（按真实 argv 边界比较，不靠空格切词）。
+if ! awk -F'\t' '$1 != "-q" { print NR ": " $0; bad = 1 } END { exit bad }' "$argv_log"; then
+  printf 'every cc-lane curl invocation must pass -q as the first argument\n' >&2
+  exit 1
+fi
+
+# 每次调用都必须显式关掉代理：--noproxy 紧跟的下一个参数必须正好是 *。
+if ! awk -F'\t' '
+  {
+    ok = 0
+    for (i = 1; i < NF; i++) {
+      if ($i == "--noproxy" && $(i + 1) == "*") { ok = 1 }
+    }
+    if (!ok) { print NR ": " $0; bad = 1 }
+  }
+  END { exit bad }
+' "$argv_log"; then
+  printf 'every cc-lane curl invocation must pass --noproxy "*"\n' >&2
+  exit 1
+fi
 
 printf 'cc lane policy ok\n'

@@ -14,14 +14,18 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$TMP_DIR/bin" "$TMP_DIR/home"
 
 cp "$ROOT_DIR/config/official-settings-lifecycle.example.json" "$TMP_DIR/settings.json"
-printf 'fake ca\n' >"$TMP_DIR/cert.pem"
+# CA 路径故意带空格：把参数拼成一行再匹配的断言会在这里失真。
+mkdir -p "$TMP_DIR/ca dir"
+CA_CERT_FILE="$TMP_DIR/ca dir/cert.pem"
+printf 'fake ca\n' >"$CA_CERT_FILE"
 printf '{"command":"/bin/echo","allowed_ips":["203.0.113.10"]}\n' >"$TMP_DIR/allowed.json"
 
 # 记录型假 curl：正常放行，只负责把每次调用的 argv 记下来。
 cat >"$TMP_DIR/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 args="$*"
-printf '%s\n' "$args" >>"$HOME/curl-argv.log"
+# TAB 分隔逐个参数写入："$*" 会抹掉参数边界，带空格的 CA 路径下断言会失真。
+{ for a in "$@"; do printf '%s\t' "$a"; done; printf '\n'; } >>"$HOME/curl-argv.log"
 
 if printf '%s' "$args" | grep -Eq '(^| )-6( |$)'; then
   exit 7
@@ -64,7 +68,7 @@ mkdir -p "$TMP_DIR/bin-curlrc"
 cat >"$TMP_DIR/bin-curlrc/curl" <<'EOF'
 #!/usr/bin/env bash
 args="$*"
-printf '%s\n' "$args" >>"$HOME/curlrc-argv.log"
+{ for a in "$@"; do printf '%s\t' "$a"; done; printf '\n'; } >>"$HOME/curlrc-argv.log"
 
 if printf '%s' "$args" | grep -Eq '(^| )-6( |$)'; then
   exit 7
@@ -114,7 +118,7 @@ run_precheck() {
       LANG="en_US.UTF-8" \
       CLAUDE_GUARD_CONFIG="$TMP_DIR/allowed.json" \
       CLAUDE_GUARD_SETTINGS="$TMP_DIR/settings.json" \
-      CLAUDE_GUARD_CA_CERT="$TMP_DIR/cert.pem" \
+      CLAUDE_GUARD_CA_CERT="$CA_CERT_FILE" \
       CLAUDE_GUARD_IP_RETRIES=1 \
       CLAUDE_GUARD_TLS_RETRIES=1 \
       CLAUDE_GUARD_UI=never \
@@ -141,9 +145,7 @@ argv_log="$TMP_DIR/home/curl-argv.log"
   printf 'no curl invocation was recorded\n' >&2
   exit 1
 }
-if awk '$1 != "-q" {print; bad=1} END {exit bad}' "$argv_log"; then
-  :
-else
+if ! awk -F'\t' '$1 != "-q" { print NR ": " $0; bad = 1 } END { exit bad }' "$argv_log"; then
   printf 'every curl invocation must pass -q as the first argument\n' >&2
   exit 1
 fi
@@ -152,28 +154,52 @@ fi
 # 2. 每条 HTTPS 路径都必须显式固定 CA bundle。
 #    Schannel 会忽略 SSL_CERT_FILE，仅靠环境变量不足以保证用的是配置里那份 CA。
 # ---------------------------------------------------------------------------
-assert_cacert() {
-  local label="$1" pattern="$2" line
-  line="$(grep -E "$pattern" "$argv_log" | head -1 || true)"
-  if [ -z "$line" ]; then
-    printf 'no curl invocation matched %s (%s)\n' "$label" "$pattern" >&2
-    cat "$argv_log" >&2
-    exit 1
-  fi
-  case "$line" in
-    *"--cacert $TMP_DIR/cert.pem"*) ;;
-    *)
-      printf '%s must pass --cacert "$CA_CERT_FILE"\n' "$label" >&2
-      printf '%s\n' "$line" >&2
-      exit 1
-      ;;
-  esac
-}
+# 按真实 argv 边界分类每次调用，并要求 --cacert 紧跟的下一个参数严格等于配置里那份 CA。
+# 只断言 "--cacert" 出现过是不够的：把路径改成 /definitely/wrong-ca.pem 也照样通过。
+if ! awk -F'\t' -v want="$CA_CERT_FILE" '
+  function fail(label,   i) {
+    printf "%s must pass --cacert \"%s\"\n", label, want
+    print "  " $0
+    bad = 1
+  }
+  {
+    label = ""
+    has6 = 0; has4 = 0; trace = 0; api = 0; login = 0
+    for (i = 1; i <= NF; i++) {
+      if ($i == "-6") { has6 = 1 }
+      if ($i == "-4") { has4 = 1 }
+      if ($i == "https://api.anthropic.com/cdn-cgi/trace") { trace = 1 }
+      if ($i == "https://api.anthropic.com/") { api = 1 }
+      if ($i == "https://platform.claude.com/") { login = 1 }
+    }
+    if (trace)             { label = "出口 IP 探测" }
+    else if (has6 && api)  { label = "IPv6 泄漏检查" }
+    else if (has4 && api)  { label = "Anthropic API TLS" }
+    else if (login)        { label = "Claude 登录 TLS" }
+    if (label == "") { next }
+    seen[label] = 1
 
-assert_cacert '出口 IP 探测'          '/cdn-cgi/trace'
-assert_cacert 'Anthropic API TLS'     '(^| )-vI .*https://api\.anthropic\.com/ *$'
-assert_cacert 'Claude 登录 TLS'       'https://platform\.claude\.com/ *$'
-assert_cacert 'IPv6 泄漏检查'         '(^| )-6( |$)'
+    ok = 0
+    for (i = 1; i < NF; i++) {
+      if ($i == "--cacert" && $(i + 1) == want) { ok = 1 }
+    }
+    if (!ok) { fail(label) }
+  }
+  END {
+    split("出口 IP 探测,IPv6 泄漏检查,Anthropic API TLS,Claude 登录 TLS", want_labels, ",")
+    for (i in want_labels) {
+      if (!(want_labels[i] in seen)) {
+        printf "no curl invocation matched %s\n", want_labels[i]
+        bad = 1
+      }
+    }
+    exit bad
+  }
+' "$argv_log" >"$TMP_DIR/cacert.err" 2>&1; then
+  cat "$TMP_DIR/cacert.err" >&2
+  cat "$argv_log" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 3. ~/.curlrc 里的 insecure 不得再绕过出口与 TLS 门禁。

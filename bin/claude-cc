@@ -305,7 +305,12 @@ check_endpoint_protocol() {
   path="$(jq -r '.endpoint_probe_path // "/"' "$CONFIG_FILE")"
   method="$(jq -r '.endpoint_probe_method // "HEAD"' "$CONFIG_FILE")"
   expected="$(jq -r '(.endpoint_expected_statuses // [200,204,400,401,404,405]) | map(tostring) | join(" ")' "$CONFIG_FILE")"
-  if ! status="$(curl -q -sS -o /dev/null -X "$method" --connect-timeout 2 --max-time 5 \
+  # -q 只挡得住 ~/.curlrc，挡不住环境里的 http_proxy / ALL_PROXY。这条探针跑在调用者
+  # 的原始环境里（不像 claude-guard 走 env -i），而 base URL 已在上面校验为 loopback，
+  # 所以直连是唯一正确的行为。curl 对 loopback 是否默认绕过代理随版本和构建而异
+  # （见 curl/curl#16119），不能依赖，这里显式关掉代理。
+  if ! status="$(curl -q --noproxy '*' -sS -o /dev/null -X "$method" \
+    --connect-timeout 2 --max-time 5 \
     -w '%{http_code}' "${EXPECTED_BASE_URL%/}${path}")"; then
     printf '本机 CC Switch 端点不可达，已拒绝启动: %s\n' "$EXPECTED_BASE_URL" >&2
     exit 7
