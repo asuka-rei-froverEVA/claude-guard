@@ -16,10 +16,11 @@
 - **`bin/claude-cc` 的本机 endpoint 探针加上 `-q --noproxy '*'`。** 这条 curl 是全项目
   唯一跑在调用者原始环境里的（`claude-guard` 的每条 curl 都走 `env -i`），`-q` 只挡得住
   `~/.curlrc`，环境里的 `http_proxy` / `ALL_PROXY` 照样生效。base URL 已被校验为
-  loopback，被代理接管就意味着「端点可达」这个结论由攻击者说了算。curl 是否默认对
-  loopback 绕过代理随版本和构建而异（macOS 8.7.1 实测会绕过，但 man page 未记载此默认，
-  参见 curl/curl#16119），不能依赖。它打的是 loopback HTTP，不涉及 CA，因此不加
-  `--cacert`。
+  loopback，被代理接管就意味着「端点可达」这个结论由攻击者说了算。`NO_PROXY` /
+  `no_proxy` 可以让 curl 绕过代理，但这是调用者环境，不是可依赖的 loopback 默认：本机
+  macOS curl 8.7.1 只清空大写变量时仍会命中小写 `no_proxy`，同时清空两者后则会采用
+  `http_proxy`（相关默认行为仍见 curl/curl#16119）。它打的是 loopback HTTP，不涉及 CA，
+  因此不加 `--cacert`。
 - 新增 `tests/curl_hardening.sh`：断言**运行时真实 argv** 的首参是 `-q`、四条 HTTPS
   路径的 `--cacert` 紧跟的下一个参数**严格等于**配置里那份 CA（只断言 `--cacert` 出现过
   是不够的，换成任意错误路径也照样通过），并用一个忠实模拟 curl 行为的假 curl 复现
