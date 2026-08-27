@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.2"
+VERSION="2.1.3"
 
 CONFIG_FILE="${CLAUDE_GUARD_CONFIG:-${SAFE_CLAUDE_CONFIG:-$HOME/.safe-claude-official.json}}"
 OFFICIAL_SETTINGS_OVERRIDE="${CLAUDE_GUARD_SETTINGS:-}"
@@ -763,7 +763,7 @@ check_tls_host() {
   unsupported=0
   while [ "$attempt" -le "$TLS_CHECK_RETRIES" ]; do
     reason=''
-    out="$(official_net_env curl -4 -x "$CLAUDE_PROXY_URL" -vI --connect-timeout 8 --max-time 15 "https://${host}/" 2>&1 >/dev/null)" \
+    out="$(official_net_env curl -q -4 -x "$CLAUDE_PROXY_URL" --cacert "$CA_CERT_FILE" -vI --connect-timeout 8 --max-time 15 "https://${host}/" 2>&1 >/dev/null)" \
       && curl_status=0 || curl_status=$?
 
     # 后端识别必须先于退出码判定：Schannel 在证书校验失败时同样会以非零码退出，
@@ -831,7 +831,7 @@ check_tls_host() {
 check_anthropic_ipv6_blocked() {
   local out remote_ip
 
-  if out="$(clean_env curl -6 -sS -o /dev/null -w 'remote_ip=%{remote_ip} http=%{http_code}' --connect-timeout 3 --max-time 6 https://api.anthropic.com/ 2>/dev/null)"; then
+  if out="$(clean_env curl -q -6 -sS --cacert "$CA_CERT_FILE" -o /dev/null -w 'remote_ip=%{remote_ip} http=%{http_code}' --connect-timeout 3 --max-time 6 https://api.anthropic.com/ 2>/dev/null)"; then
     remote_ip="$(printf '%s\n' "$out" | sed -n 's/.*remote_ip=\([^ ]*\).*/\1/p')"
     case "$remote_ip" in
       ::ffff:198.18.*|::ffff:198.19.*|198.18.*|198.19.*)
@@ -1467,7 +1467,7 @@ get_current_ip_once() {
     # curl 非零退出时一律丢弃响应体。--max-time 超时（退出码 28）等情况下 curl 可能
     # 已经吐出包含完整 ip= 字段的部分响应，采信它等于拿一个来路不明的截断结果去判定
     # 白名单；此处宁可探测失败，交给外层重试与 exit 3 处理。
-    if ! raw="$(official_net_env curl -4 -x "$CLAUDE_PROXY_URL" -fsS --connect-timeout 5 --max-time 10 "$url" 2>/dev/null)"; then
+    if ! raw="$(official_net_env curl -q -4 -x "$CLAUDE_PROXY_URL" --cacert "$CA_CERT_FILE" -fsS --connect-timeout 5 --max-time 10 "$url" 2>/dev/null)"; then
       continue
     fi
 
@@ -1511,7 +1511,7 @@ EOF
 check_api_path_once() {
   local out issuer
 
-  if ! out="$(official_net_env curl -4 -x "$CLAUDE_PROXY_URL" -vI --connect-timeout 8 --max-time 15 https://api.anthropic.com/ 2>&1 >/dev/null)"; then
+  if ! out="$(official_net_env curl -q -4 -x "$CLAUDE_PROXY_URL" --cacert "$CA_CERT_FILE" -vI --connect-timeout 8 --max-time 15 https://api.anthropic.com/ 2>&1 >/dev/null)"; then
     return 1
   fi
   printf '%s\n' "$out" | grep -Eq "CONNECT api.anthropic.com:443|CONNECT tunnel established|CONNECT phase completed" || return 1

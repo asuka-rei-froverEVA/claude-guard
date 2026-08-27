@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="2.1.2"
+VERSION="2.1.3"
 CONFIG_FILE="${CLAUDE_CC_CONFIG:-$HOME/.safe-claude-cc.json}"
 PRECHECK_ONLY=0
 ROUTE_RISK_RE='ANTHROPIC_(BASE_URL|AUTH_TOKEN|API_KEY|CUSTOM_HEADERS|BEDROCK_BASE_URL|VERTEX_BASE_URL|FOUNDRY_BASE_URL)|apiKeyHelper|CLAUDE_CONFIG_DIR|CLAUDE_CODE_USE_(GATEWAY|BEDROCK|VERTEX|FOUNDRY)'
@@ -305,7 +305,7 @@ check_endpoint_protocol() {
   path="$(jq -r '.endpoint_probe_path // "/"' "$CONFIG_FILE")"
   method="$(jq -r '.endpoint_probe_method // "HEAD"' "$CONFIG_FILE")"
   expected="$(jq -r '(.endpoint_expected_statuses // [200,204,400,401,404,405]) | map(tostring) | join(" ")' "$CONFIG_FILE")"
-  if ! status="$(curl -sS -o /dev/null -X "$method" --connect-timeout 2 --max-time 5 \
+  if ! status="$(curl -q -sS -o /dev/null -X "$method" --connect-timeout 2 --max-time 5 \
     -w '%{http_code}' "${EXPECTED_BASE_URL%/}${path}")"; then
     printf '本机 CC Switch 端点不可达，已拒绝启动: %s\n' "$EXPECTED_BASE_URL" >&2
     exit 7

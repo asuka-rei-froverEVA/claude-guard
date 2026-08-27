@@ -1,5 +1,14 @@
 # Roadmap
 
+## v2.1.3
+
+收紧 curl 自身的配置来源与信任锚，不放宽任何既有检查。
+
+- 所有 curl 调用以 `-q` 为首参，隔离用户 `~/.curlrc`。
+- 所有 HTTPS 调用显式 `--cacert`，不再只依赖 `SSL_CERT_FILE`。
+- 新增运行时 argv 断言与 `.curlrc insecure` 回归。
+- 更正 README 中按二进制来源推断 TLS 后端的错误建议。
+
 ## v2.1.2
 
 让出口探测与 API 流量走同一条分流策略，并把 Windows 上的门禁失败讲清楚。

@@ -7,7 +7,7 @@ Claude 守护是一套 Claude Code 双通道版本与启动策略。它让官方
 通道保持严格、可审计和固定版本，同时允许本机 CC Switch 通道独立跟进较新的
 Claude Code 工程能力。两条通道共享客户端形态，但不共享 profile 和路由。
 
-当前版本：`2.1.2`
+当前版本：`2.1.3`
 
 > 本项目不是 Anthropic 或 Claude Code 官方项目。
 
@@ -116,6 +116,23 @@ Claude 守护只做本地启动前检查和 dry-run 观察。它不做：
 请只在符合服务条款和本地法规的场景中使用。守门程序只能降低本机配置和进程生命周期风险，不能保证账号不会被限制，也不能把换号绕过封禁变成合规行为。
 
 ## 版本历史
+
+### 2.1.3 - curl 配置来源与信任锚加固
+
+`2.1.3` 补掉一个此前一直存在的绕过面：门禁用的 curl 会读取用户的 `~/.curlrc`。
+
+主要更新：
+
+- 所有 curl 调用以 `-q` 为首参。`official_net_env` / `clean_env` 用了 `env -i`，但都
+  把 `HOME` 传了进去，所以 `.curlrc` 一直生效——里面一行 `insecure` 就能关掉证书校验，
+  让伪造的 `cdn-cgi/trace` 响应喂进一个白名单内的出口 IP，出口门禁形同虚设。`-q` 必须
+  是第一个参数才有效。
+- 所有 HTTPS 调用显式传 `--cacert "$CA_CERT_FILE"`，不再只依赖 `SSL_CERT_FILE`
+  环境变量（Schannel 会忽略它）。
+- 新增运行时 argv 断言：假 curl 逐次检查首参与 `--cacert`，不用源码 grep 代替。
+
+本版不改变任何网络目标、探测频率、检查语义或通道行为。详见
+[`docs/v2.1.3-curl-config-isolation.md`](docs/v2.1.3-curl-config-isolation.md)。
 
 ### 2.1.2 - 出口探测与 API 同策略
 
@@ -498,10 +515,13 @@ Windows 原生 curl（以及任何使用 Schannel TLS 后端的 curl）跑不了
 
 判断方法：`curl -V`，第一行末尾会写 SSL 后端。如果是 `Schannel`，有两条路：
 
-**1）改用 OpenSSL 编译的 curl。** MSYS2 的 `mingw-w64-x86_64-curl`，或确认 PATH 里
-Git for Windows 的 `mingw64\bin\curl.exe` 排在 `C:\Windows\System32\curl.exe` 前面。
-注意换完还有一个坑：Schannel 会忽略 `SSL_CERT_FILE`，换成 OpenSSL 后它就生效了，因此需要
-设 `CLAUDE_GUARD_CA_CERT` 指向真实 CA bundle，Git for Windows 一般在
+**1）改用 OpenSSL 编译的 curl。** 一律**以 `curl -V` 的实际输出为准**，不要按二进制的
+来源推断：社区反馈 Git for Windows 自带的 `mingw64\bin\curl.exe` 在部分版本上同样是
+Schannel 后端，因此仅仅调整 PATH 顺序并不保证换到 OpenSSL。换完请重新跑一次 `curl -V`
+确认。
+
+换到 OpenSSL 后还有一个坑：Schannel 会忽略 `SSL_CERT_FILE`，OpenSSL 不会。请把
+`CLAUDE_GUARD_CA_CERT` 指向一份真实的 CA bundle，Git for Windows 一般在
 `C:\Program Files\Git\mingw64\etc\ssl\certs\ca-bundle.crt`。
 
 **2）用 WSL2。** 两处要额外配：

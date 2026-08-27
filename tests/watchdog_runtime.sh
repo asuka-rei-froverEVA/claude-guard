@@ -15,6 +15,9 @@ args="$*"
 state_dir="$HOME/watchdog-fixture"
 mkdir -p "$state_dir"
 
+# 每次调用都记录 argv，供测试尾部断言首参 -q 与固定 CA bundle。
+printf '%s\n' "$args" >>"$state_dir/curl-argv.log"
+
 increment_counter() {
   local name="$1"
   local file="$state_dir/$name"
@@ -232,5 +235,26 @@ run_case healthy 512 1
 grep -q 'ROTATION_MARKER' "$TMP_DIR/healthy.log.1"
 grep -q 'watchdog started pid=' "$TMP_DIR/healthy.log"
 grep -q 'watchdog exited.*reason=target-gone' "$TMP_DIR/healthy.log"
+
+# 所有 curl 调用必须以 -q 为首参，否则用户 ~/.curlrc 里的 insecure 会关掉证书校验。
+# 这里断言的是运行时真实 argv，不是源码 grep。
+argv_log="$TMP_DIR/home/watchdog-fixture/curl-argv.log"
+[ -s "$argv_log" ] || {
+  printf 'watchdog fixture recorded no curl invocations\n' >&2
+  exit 1
+}
+if awk '$1 != "-q" {print; bad=1} END {exit bad}' "$argv_log"; then
+  :
+else
+  printf 'every curl invocation must pass -q as the first argument\n' >&2
+  exit 1
+fi
+
+# watchdog 的 API 探针（check_api_path_once）必须显式固定 CA bundle。
+if ! grep -q -- '--cacert' <(grep 'https://api.anthropic.com/ *$' "$argv_log"); then
+  printf 'watchdog API probe must pass an explicit --cacert\n' >&2
+  grep 'https://api.anthropic.com/' "$argv_log" >&2
+  exit 1
+fi
 
 printf 'watchdog runtime integration ok\n'

@@ -2,6 +2,34 @@
 
 更完整的版本目标、设计边界和验证说明见 README 的“版本历史”部分。
 
+## 2.1.3 - 2026-08-27
+
+- **所有 curl 调用改为以 `-q` 作为首参。** curl 默认读取 `~/.curlrc`，而
+  `official_net_env` / `clean_env` 虽然用 `env -i`，却都把 `HOME` 传了进去——用户
+  `.curlrc` 里一行 `insecure` 就能关掉门禁的证书校验。`-q` 能禁用配置文件，但**必须
+  是第一个参数**，位置靠后无效。
+- **所有 HTTPS 调用改为显式传 `--cacert "$CA_CERT_FILE"`。** 此前只靠环境变量
+  `SSL_CERT_FILE`；Schannel 会直接忽略它而使用 Windows 原生证书库，仅设环境变量不足以
+  保证用的是配置里指定的那份 CA bundle。
+- 覆盖四条 HTTPS 路径：出口 IP 探测、IPv6 泄漏检查、Anthropic API TLS 预检、watchdog
+  API 探针。`bin/claude-cc` 的本机 endpoint 探针也加了 `-q`（它打 loopback HTTP，
+  不涉及 CA，因此不加 `--cacert`）。
+- 新增 `tests/curl_hardening.sh`：断言**运行时真实 argv** 的首参是 `-q`、四条 HTTPS
+  路径都带精确的 `--cacert`，并用一个忠实模拟 curl 行为的假 curl 复现
+  `~/.curlrc` 含 `insecure` 的场景——白名单里正好有伪造响应中的那个 IP，一旦
+  `.curlrc` 生效就会放行，因此断言是紧的。`tests/watchdog_runtime.sh` 同步加上
+  watchdog 路径的 argv 断言。
+- 更正 README「平台支持」里一条错误建议：不能按二进制来源推断 TLS 后端。社区反馈
+  Git for Windows 自带的 `mingw64\bin\curl.exe` 在部分版本上同样是 Schannel，仅调整
+  PATH 顺序并不保证换到 OpenSSL，一律以 `curl -V` 实际输出为准。
+
+本版**不改变**任何网络目标、探测频率、失败阈值、`allowed_ips` 语义、OAuth profile、
+session、客户端版本与哈希、生命周期策略或 CC Switch 通道行为。它只收紧 curl 自身的
+配置来源与信任锚，不放宽任何一条既有检查。
+
+如果你的 `~/.curlrc` 里有 `insecure`、`-k`、`proxy` 或自定义 CA 设置，升级后它们不再
+影响 Guard 的探测——这正是本版的目的。
+
 ## 2.1.2 - 2026-08-27
 
 - 出口 IP 探测改为默认只使用 `api.anthropic.com/cdn-cgi/trace`，不再默认依赖
