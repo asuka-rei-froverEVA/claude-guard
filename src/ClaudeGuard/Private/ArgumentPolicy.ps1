@@ -48,6 +48,7 @@ function Test-GuardArguments {
         $model = $null
         if ($argument -ceq '--model') {
             if ($index + 1 -ge $Arguments.Count -or
+                [string]::IsNullOrEmpty($Arguments[$index + 1]) -or
                 $Arguments[$index + 1].StartsWith('--', [StringComparison]::Ordinal)) {
                 return New-GuardResult `
                     -Code 'CG_ARGUMENT_VALUE_MISSING' -ExitCode 2 -Status 'fail' `

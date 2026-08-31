@@ -21,6 +21,13 @@
 - Put `exit` only in `bin/claude-guard.ps1`; module functions return results or process exit codes.
 - Make one focused commit after every task whose checks pass.
 
+## Checkpoint Status (2026-08-31)
+
+- Tasks 1–5 are implemented through commit `ea2b164`: test harness/module skeleton, configuration and offline status, local policy gates, client identity, and sanitized child-process construction.
+- Review hardening after Task 5 covers Windows timezone mapping, bounded version capture, strict Claude version parsing, full local status evidence, explicit offline test bootstrap, and empty model values.
+- Tasks 6–13 remain pending: CONNECT/TLS/egress/IPv6 checks, launch orchestration, process containment, mutations, CI, documentation, and real-machine validation.
+- This checkpoint is not yet a usable guarded Claude launcher and must remain a draft until the pending tasks and verification gates are complete.
+
 ---
 
 ### Task 1: Pinned Windows Test Harness And Module Skeleton
@@ -261,7 +268,7 @@ git commit -m "feat: verify Windows Claude client identity"
 
 ```powershell
 New-GuardChildEnvironment -Source <IDictionary> -ConfigDir <string> `
-  -SettingsPath <string> -ProxyUri <uri>
+  -ProxyUri <uri>
 Start-GuardClaudeProcess -CommandPath <string> -Arguments <string[]> `
   -Environment <IDictionary>
 ```
@@ -608,4 +615,3 @@ git push origin codex/windows-native-powershell
 ```
 
 Do not call the Windows lane stable, publish a release, merge, or tag until GitHub CI and a redacted real-machine precheck both pass.
-

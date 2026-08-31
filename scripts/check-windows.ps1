@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipBootstrap
+    [string]$ToolRoot
 )
 
 Set-StrictMode -Version Latest
@@ -11,13 +11,22 @@ if ($PSVersionTable.PSVersion -lt [version]'7.4') {
 }
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$toolRoot = Join-Path $repositoryRoot '.tools\powershell'
-
-if (-not $SkipBootstrap) {
-    & (Join-Path $PSScriptRoot 'bootstrap-windows-tests.ps1')
+if ([string]::IsNullOrWhiteSpace($ToolRoot)) {
+    $ToolRoot = Join-Path $repositoryRoot '.tools\powershell'
 }
 
-$env:PSModulePath = '{0}{1}{2}' -f $toolRoot, [IO.Path]::PathSeparator, $env:PSModulePath
+$requiredManifests = @(
+    (Join-Path $ToolRoot 'Pester\6.0.1\Pester.psd1')
+    (Join-Path $ToolRoot 'PSScriptAnalyzer\1.25.0\PSScriptAnalyzer.psd1')
+)
+foreach ($requiredManifest in $requiredManifests) {
+    if (-not (Test-Path -LiteralPath $requiredManifest -PathType Leaf)) {
+        throw ('Pinned Windows test dependencies are missing. ' +
+            'Run: pwsh -NoProfile -File scripts/bootstrap-windows-tests.ps1')
+    }
+}
+
+$env:PSModulePath = '{0}{1}{2}' -f $ToolRoot, [IO.Path]::PathSeparator, $env:PSModulePath
 
 $moduleManifest = Join-Path $repositoryRoot 'src\ClaudeGuard\ClaudeGuard.psd1'
 Import-Module $moduleManifest -Force -ErrorAction Stop

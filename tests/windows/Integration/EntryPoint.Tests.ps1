@@ -14,7 +14,9 @@ Describe 'Windows entry point' {
         $settingsPath = Join-Path $configDirectory 'settings.json'
         $configPath = Join-Path $TestDrive 'safe.json'
         New-Item -ItemType Directory -Path $configDirectory | Out-Null
-        '{}' | Set-Content -LiteralPath $settingsPath
+        Copy-Item `
+            -LiteralPath (Join-Path $PSScriptRoot '..\Fixtures\settings\official-safe.json') `
+            -Destination $settingsPath
         @"
 {
   "command": "$((Get-Command pwsh).Source.Replace('\', '\\'))",
@@ -25,9 +27,17 @@ Describe 'Windows entry point' {
 "@ | Set-Content -LiteralPath $configPath
 
         $previousConfig = $env:CLAUDE_GUARD_CONFIG
+        $previousUserProfile = $env:USERPROFILE
         try {
             $env:CLAUDE_GUARD_CONFIG = $configPath
-            $output = & pwsh -NoLogo -NoProfile -File $entryPoint status --json 2>&1
+            $env:USERPROFILE = $TestDrive
+            Push-Location $TestDrive
+            try {
+                $output = & pwsh -NoLogo -NoProfile -File $entryPoint status --json 2>&1
+            }
+            finally {
+                Pop-Location
+            }
 
             $LASTEXITCODE | Should -Be 0
             $parsed = (@($output) -join "`n") | ConvertFrom-Json
@@ -36,6 +46,7 @@ Describe 'Windows entry point' {
         }
         finally {
             $env:CLAUDE_GUARD_CONFIG = $previousConfig
+            $env:USERPROFILE = $previousUserProfile
         }
     }
 }

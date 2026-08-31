@@ -38,7 +38,6 @@ Describe 'Windows child environment policy' {
             $child = New-GuardChildEnvironment `
                 -Source $Source `
                 -ConfigDir 'C:\Users\example\.claude-official' `
-                -SettingsPath 'C:\Users\example\.claude-official\settings.json' `
                 -ProxyUri ([uri]'http://127.0.0.1:7897') `
                 -CaCertPath 'C:\Guard\roots.pem'
 
@@ -83,7 +82,6 @@ Describe 'Windows child environment policy' {
             $child = New-GuardChildEnvironment `
                 -Source $Source `
                 -ConfigDir 'C:\Profile' `
-                -SettingsPath 'C:\Profile\settings.json' `
                 -ProxyUri ([uri]'http://127.0.0.1:7897')
 
             $child['CLAUDE_CODE_CERT_STORE'] | Should -BeExactly 'system'

@@ -3,7 +3,9 @@ function Get-ClaudeGuardStatus {
     param(
         [string]$ConfigPath,
 
-        [System.Collections.IDictionary]$Environment = [Environment]::GetEnvironmentVariables()
+        [System.Collections.IDictionary]$Environment = [Environment]::GetEnvironmentVariables(),
+
+        [string]$WorkingDirectory = (Get-Location).Path
     )
 
     $environmentValues = ConvertTo-GuardEnvironmentDictionary -Environment $Environment
@@ -44,6 +46,53 @@ function Get-ClaudeGuardStatus {
     $clientPath = Resolve-GuardPath -Path $configuration.command -Kind File
     $configDirectory = Resolve-GuardPath -Path $configuration.config_dir -Kind Directory
     $settingsPath = Resolve-GuardPath -Path $configuration.settings_path -Kind File
+    $guardEntryPath = [IO.Path]::GetFullPath(
+        (Join-Path $PSScriptRoot '..\..\..\bin\claude-guard.ps1')
+    )
+    $clientIdentity = Test-GuardClientIdentity `
+        -CommandPath $configuration.command `
+        -ExpectedVersion $configuration.client_version `
+        -ExpectedSha256 $configuration.client_sha256 `
+        -Environment $Environment `
+        -GuardEntryPath $guardEntryPath
+    $settingsPolicy = Test-GuardSettings `
+        -SettingsPath $configuration.settings_path `
+        -BlockedPlugins $configuration.blocked_plugins `
+        -BlockedModels $configuration.blocked_models `
+        -RequireUnpinnedModel $configuration.require_unpinned_model
+
+    $projectResults = @(
+        foreach ($projectSettingsPath in @(Find-GuardProjectSettings `
+            -StartPath $WorkingDirectory `
+            -ProfileBoundary $userProfile)) {
+            Test-GuardSettings `
+                -SettingsPath $projectSettingsPath `
+                -BlockedPlugins $configuration.blocked_plugins `
+                -BlockedModels $configuration.blocked_models `
+                -RequireUnpinnedModel $configuration.require_unpinned_model `
+                -Project
+        }
+    )
+    $projectFailure = @($projectResults | Where-Object status -eq 'fail' | Select-Object -First 1)
+    $projectPolicy = if ($projectFailure.Count -gt 0) {
+        $projectFailure[0]
+    }
+    else {
+        New-GuardResult `
+            -Code 'CG_PROJECT_SETTINGS_VALID' -ExitCode 0 -Status 'pass' `
+            -Reason 'Discovered project settings comply with local policy.' `
+            -Remediation '' `
+            -Evidence @{ files_checked = $projectResults.Count }
+    }
+
+    $fingerprint = Test-GuardClientFingerprint `
+        -CommandPath $configuration.command `
+        -Mode $configuration.fingerprint_mode `
+        -Environment $Environment
+    $legacyProfile = Test-GuardLegacyProfile `
+        -ProfilePath (Join-Path $userProfile '.claude\settings.json') `
+        -Mode $configuration.legacy_profile_mode
+    $activeProcesses = Get-GuardMatchingProcessState -CommandPath $clientPath.Path
 
     $evidence = [ordered]@{
         module_version     = $script:ClaudeGuardModuleVersion
@@ -64,9 +113,47 @@ function Get-ClaudeGuardStatus {
             status = $settingsPath.Result.status
             path   = Protect-GuardPath -Path $settingsPath.Path -UserProfile $userProfile
         }
+        client_identity    = ConvertTo-GuardStatusCheck -Result $clientIdentity
+        settings_policy    = ConvertTo-GuardStatusCheck -Result $settingsPolicy
+        project_settings   = ConvertTo-GuardStatusCheck -Result $projectPolicy
+        fingerprint        = ConvertTo-GuardStatusCheck -Result $fingerprint
+        legacy_profile     = ConvertTo-GuardStatusCheck -Result $legacyProfile
+        active_processes   = $activeProcesses
         network_readiness  = 'not_checked'
         watchdog           = 'not_available_in_windows_milestone_1'
         notifications      = 'unavailable'
+    }
+
+    $localResults = @(
+        $clientPath.Result
+        $configDirectory.Result
+        $settingsPath.Result
+        $clientIdentity
+        $settingsPolicy
+        $projectPolicy
+        $fingerprint
+        $legacyProfile
+    )
+    $localFailure = @($localResults | Where-Object status -eq 'fail' | Select-Object -First 1)
+    if ($localFailure.Count -gt 0) {
+        return New-GuardResult `
+            -Code 'CG_STATUS_LOCAL_POLICY_FAILED' `
+            -ExitCode $localFailure[0].exit_code `
+            -Status 'fail' `
+            -Reason 'One or more local Windows policy checks failed; network readiness was not checked.' `
+            -Remediation $localFailure[0].remediation `
+            -Evidence $evidence
+    }
+
+    $localWarning = @($localResults | Where-Object status -eq 'warn' | Select-Object -First 1)
+    if ($localWarning.Count -gt 0) {
+        return New-GuardResult `
+            -Code 'CG_STATUS_LOCAL_WARNING' `
+            -ExitCode 0 `
+            -Status 'warn' `
+            -Reason 'Local Windows policy checks completed with warnings; network readiness was not checked.' `
+            -Remediation $localWarning[0].remediation `
+            -Evidence $evidence
     }
 
     New-GuardResult `

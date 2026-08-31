@@ -49,6 +49,7 @@ Describe 'Windows CLI argument policy' {
 
     It 'rejects a model option whose value is missing' -ForEach @(
         @{ Arguments = @('--model') }
+        @{ Arguments = @('--model', '') }
         @{ Arguments = @('--model=') }
     ) {
         InModuleScope ClaudeGuard -Parameters @{ Arguments = $Arguments } {

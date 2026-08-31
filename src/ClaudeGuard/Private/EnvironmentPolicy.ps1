@@ -13,16 +13,12 @@ function New-GuardChildEnvironment {
         [string]$ConfigDir,
 
         [Parameter(Mandatory)]
-        [string]$SettingsPath,
-
-        [Parameter(Mandatory)]
         [uri]$ProxyUri,
 
         [AllowNull()]
         [string]$CaCertPath
     )
 
-    $null = $SettingsPath
     $sourceValues = ConvertTo-GuardEnvironmentDictionary -Environment $Source
     $child = [Collections.Generic.Dictionary[string, string]]::new(
         [StringComparer]::OrdinalIgnoreCase

@@ -1,3 +1,92 @@
+if (-not ('ClaudeGuard.Runtime.BoundedProcessRunner' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ClaudeGuard.Runtime
+{
+    public sealed class BoundedProcessResult
+    {
+        public bool Success { get; set; }
+        public bool TimedOut { get; set; }
+        public bool OutputLimitExceeded { get; set; }
+        public int? ExitCode { get; set; }
+        public string StdOut { get; set; } = string.Empty;
+        public string StdErr { get; set; } = string.Empty;
+    }
+
+    public static class BoundedProcessRunner
+    {
+        private sealed class BoundedText
+        {
+            public string Text { get; set; } = string.Empty;
+            public bool Exceeded { get; set; }
+        }
+
+        private static async Task<BoundedText> DrainAsync(StreamReader reader, int maximumCharacters)
+        {
+            var buffer = new char[1024];
+            var text = new StringBuilder(Math.Min(maximumCharacters, 4096));
+            var exceeded = false;
+            int read;
+            while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+            {
+                var remaining = maximumCharacters - text.Length;
+                if (remaining > 0)
+                {
+                    text.Append(buffer, 0, Math.Min(remaining, read));
+                }
+                if (read > remaining)
+                {
+                    exceeded = true;
+                }
+            }
+            return new BoundedText { Text = text.ToString(), Exceeded = exceeded };
+        }
+
+        public static BoundedProcessResult Run(
+            ProcessStartInfo startInfo,
+            int timeoutMilliseconds,
+            int maximumCharacters)
+        {
+            using (var process = new Process { StartInfo = startInfo })
+            {
+                if (!process.Start())
+                {
+                    return new BoundedProcessResult { Success = false };
+                }
+
+                var stdoutTask = DrainAsync(process.StandardOutput, maximumCharacters);
+                var stderrTask = DrainAsync(process.StandardError, maximumCharacters);
+                var timedOut = !process.WaitForExit(timeoutMilliseconds);
+                if (timedOut)
+                {
+                    try { process.Kill(true); } catch { }
+                    process.WaitForExit();
+                }
+
+                Task.WaitAll(stdoutTask, stderrTask);
+                var stdout = stdoutTask.GetAwaiter().GetResult();
+                var stderr = stderrTask.GetAwaiter().GetResult();
+                return new BoundedProcessResult
+                {
+                    Success = !timedOut,
+                    TimedOut = timedOut,
+                    OutputLimitExceeded = stdout.Exceeded || stderr.Exceeded,
+                    ExitCode = timedOut ? (int?)null : process.ExitCode,
+                    StdOut = stdout.Text,
+                    StdErr = stderr.Text
+                };
+            }
+        }
+    }
+}
+'@
+}
+
 function Invoke-GuardCapturedProcess {
     [CmdletBinding()]
     param(
@@ -19,7 +108,6 @@ function Invoke-GuardCapturedProcess {
         [int]$MaxOutputCharacters = 4096
     )
 
-    $process = $null
     try {
         $startInfo = [Diagnostics.ProcessStartInfo]::new()
         $startInfo.FileName = $CommandPath
@@ -37,56 +125,46 @@ function Invoke-GuardCapturedProcess {
             }
         }
 
-        $process = [Diagnostics.Process]::new()
-        $process.StartInfo = $startInfo
-        if (-not $process.Start()) {
-            throw 'The configured process did not start.'
-        }
-
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit($TimeoutMs)) {
-            $process.Kill($true)
-            $process.WaitForExit()
-            return [pscustomobject][ordered]@{
-                Success  = $false
-                TimedOut = $true
-                ExitCode = $null
-                StdOut   = ''
-                StdErr   = ''
-            }
-        }
-
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        if ($stdout.Length -gt $MaxOutputCharacters) {
-            $stdout = $stdout.Substring(0, $MaxOutputCharacters)
-        }
-        if ($stderr.Length -gt $MaxOutputCharacters) {
-            $stderr = $stderr.Substring(0, $MaxOutputCharacters)
-        }
-
+        $captured = [ClaudeGuard.Runtime.BoundedProcessRunner]::Run(
+            $startInfo,
+            $TimeoutMs,
+            $MaxOutputCharacters
+        )
         [pscustomobject][ordered]@{
-            Success  = $true
-            TimedOut = $false
-            ExitCode = $process.ExitCode
-            StdOut   = $stdout
-            StdErr   = $stderr
+            Success             = $captured.Success
+            TimedOut            = $captured.TimedOut
+            OutputLimitExceeded = $captured.OutputLimitExceeded
+            ExitCode            = $captured.ExitCode
+            StdOut              = $captured.StdOut
+            StdErr              = $captured.StdErr
         }
     }
     catch {
         [pscustomobject][ordered]@{
-            Success  = $false
-            TimedOut = $false
-            ExitCode = $null
-            StdOut   = ''
-            StdErr   = ''
+            Success             = $false
+            TimedOut            = $false
+            OutputLimitExceeded = $false
+            ExitCode            = $null
+            StdOut              = ''
+            StdErr              = ''
         }
     }
-    finally {
-        if ($null -ne $process) {
-            $process.Dispose()
-        }
+}
+
+function ConvertFrom-GuardClientVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$Output
+    )
+
+    $versionMatch = [regex]::Match(
+        $Output,
+        '\A(?<version>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?: \(Claude Code\))?\r?\n?\z'
+    )
+    if ($versionMatch.Success) {
+        $versionMatch.Groups['version'].Value
     }
 }
 
@@ -108,7 +186,10 @@ function Test-GuardClientIdentity {
         [System.Collections.IDictionary]$Environment,
 
         [Parameter(Mandatory)]
-        [string]$GuardEntryPath
+        [string]$GuardEntryPath,
+
+        [AllowNull()]
+        [scriptblock]$ProcessInvoker
     )
 
     $resolved = Resolve-GuardPath -Path $CommandPath -Kind File -RejectReparsePoint
@@ -130,27 +211,30 @@ function Test-GuardClientIdentity {
 
     $actualVersion = 'unpinned'
     if (-not [string]::IsNullOrWhiteSpace($ExpectedVersion)) {
-        $captured = Invoke-GuardCapturedProcess `
-            -CommandPath $resolved.Path `
-            -Arguments @('--version') `
-            -Environment $Environment
-        $versionMatch = if ($captured.Success -and $captured.ExitCode -eq 0) {
-            [regex]::Match(
-                $captured.StdOut,
-                '(?m)(?<!\d)(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?)'
-            )
+        $captured = if ($null -ne $ProcessInvoker) {
+            & $ProcessInvoker $resolved.Path @('--version') $Environment
         }
         else {
-            [Text.RegularExpressions.Match]::Empty
+            Invoke-GuardCapturedProcess `
+                -CommandPath $resolved.Path `
+                -Arguments @('--version') `
+                -Environment $Environment
         }
-        if (-not $versionMatch.Success) {
+        $outputLimitExceeded = $null -ne $captured.PSObject.Properties['OutputLimitExceeded'] -and
+            [bool]$captured.OutputLimitExceeded
+        $actualVersion = if ($captured.Success -and
+            $captured.ExitCode -eq 0 -and
+            -not $outputLimitExceeded) {
+            ConvertFrom-GuardClientVersion -Output ([string]$captured.StdOut)
+        }
+        else { $null }
+        if ([string]::IsNullOrEmpty($actualVersion)) {
             return New-GuardResult `
                 -Code 'CG_CLIENT_VERSION_UNAVAILABLE' -ExitCode 12 -Status 'fail' `
                 -Reason 'The configured client did not return a bounded parseable version.' `
                 -Remediation 'Verify the native Claude executable and its local dependencies.' `
                 -Evidence @{ client = [IO.Path]::GetFileName($resolved.Path) }
         }
-        $actualVersion = $versionMatch.Groups[1].Value
         if ($actualVersion -cne $ExpectedVersion) {
             return New-GuardResult `
                 -Code 'CG_CLIENT_VERSION_MISMATCH' -ExitCode 12 -Status 'fail' `

@@ -63,6 +63,7 @@ Describe 'Windows client fingerprint policy' {
     It 'treats the two upstream Asia time zones as activation conditions' -ForEach @(
         @{ TimeZoneId = 'Asia/Shanghai' }
         @{ TimeZoneId = 'Asia/Urumqi' }
+        @{ TimeZoneId = 'China Standard Time' }
     ) {
         $clientPath = Join-Path $TestDrive ("active-{0}.exe" -f $TimeZoneId.Replace('/', '-'))
         $script:markerText | Set-Content -LiteralPath $clientPath

@@ -6,23 +6,35 @@ BeforeAll {
 Describe 'Windows Claude client identity' {
     It 'accepts an exact executable version and SHA-256 pin' {
         $commandPath = (Get-Command pwsh).Source
-        $expectedVersion = $PSVersionTable.PSVersion.ToString()
+        $expectedVersion = '1.2.3'
         $expectedHash = (Get-FileHash -LiteralPath $commandPath -Algorithm SHA256).Hash
         $guardPath = Join-Path $TestDrive 'claude-guard.ps1'
         '' | Set-Content -LiteralPath $guardPath
+        $versionInvoker = {
+            [pscustomobject]@{
+                Success = $true
+                TimedOut = $false
+                OutputLimitExceeded = $false
+                ExitCode = 0
+                StdOut = "1.2.3 (Claude Code)`r`n"
+                StdErr = ''
+            }
+        }
 
         InModuleScope ClaudeGuard -Parameters @{
             CommandPath = $commandPath
             ExpectedVersion = $expectedVersion
             ExpectedHash = $expectedHash
             GuardPath = $guardPath
+            VersionInvoker = $versionInvoker
         } {
             $result = Test-GuardClientIdentity `
                 -CommandPath $CommandPath `
                 -ExpectedVersion $ExpectedVersion `
                 -ExpectedSha256 $ExpectedHash `
                 -Environment ([Environment]::GetEnvironmentVariables()) `
-                -GuardEntryPath $GuardPath
+                -GuardEntryPath $GuardPath `
+                -ProcessInvoker $VersionInvoker
 
             $result.status | Should -BeExactly 'pass'
             $result.evidence.version | Should -BeExactly $ExpectedVersion
@@ -51,21 +63,66 @@ Describe 'Windows Claude client identity' {
         $commandPath = (Get-Command pwsh).Source
         $guardPath = Join-Path $TestDrive 'claude-guard.ps1'
         '' | Set-Content -LiteralPath $guardPath
+        $versionInvoker = {
+            [pscustomobject]@{
+                Success = $true
+                TimedOut = $false
+                OutputLimitExceeded = $false
+                ExitCode = 0
+                StdOut = "9.9.9 (Claude Code)`r`n"
+                StdErr = ''
+            }
+        }
 
         InModuleScope ClaudeGuard -Parameters @{
             CommandPath = $commandPath
             GuardPath = $guardPath
+            VersionInvoker = $versionInvoker
         } {
             $result = Test-GuardClientIdentity `
                 -CommandPath $CommandPath `
                 -ExpectedVersion '0.0.0-impossible' `
                 -ExpectedSha256 '' `
                 -Environment ([Environment]::GetEnvironmentVariables()) `
-                -GuardEntryPath $GuardPath
+                -GuardEntryPath $GuardPath `
+                -ProcessInvoker $VersionInvoker
 
             $result.code | Should -BeExactly 'CG_CLIENT_VERSION_MISMATCH'
             $result.exit_code | Should -Be 12
             ($result | ConvertTo-GuardJson) | Should -Not -Match 'PowerShell'
+        }
+    }
+
+    It 'rejects extra text even when it contains the pinned semantic version' {
+        $commandPath = (Get-Command pwsh).Source
+        $guardPath = Join-Path $TestDrive 'claude-guard.ps1'
+        '' | Set-Content -LiteralPath $guardPath
+        $versionInvoker = {
+            [pscustomobject]@{
+                Success = $true
+                TimedOut = $false
+                OutputLimitExceeded = $false
+                ExitCode = 0
+                StdOut = "unexpected client 1.2.3`r`n"
+                StdErr = ''
+            }
+        }
+
+        InModuleScope ClaudeGuard -Parameters @{
+            CommandPath = $commandPath
+            GuardPath = $guardPath
+            VersionInvoker = $versionInvoker
+        } {
+            $result = Test-GuardClientIdentity `
+                -CommandPath $CommandPath `
+                -ExpectedVersion '1.2.3' `
+                -ExpectedSha256 '' `
+                -Environment ([Environment]::GetEnvironmentVariables()) `
+                -GuardEntryPath $GuardPath `
+                -ProcessInvoker $VersionInvoker
+
+            $result.code | Should -BeExactly 'CG_CLIENT_VERSION_UNAVAILABLE'
+            $result.exit_code | Should -Be 12
         }
     }
 
@@ -113,6 +170,32 @@ Describe 'Windows Claude client identity' {
 
             $result.code | Should -BeExactly 'CG_CLIENT_VERSION_UNAVAILABLE'
             $result.exit_code | Should -Be 12
+        }
+    }
+
+    It 'bounds stdout and stderr while draining a flooding local process' {
+        $commandPath = (Get-Command pwsh).Source
+        $arguments = @(
+            '-NoLogo'
+            '-NoProfile'
+            '-Command'
+            "[Console]::Out.Write('A' * 8192); [Console]::Error.Write('B' * 8192)"
+        )
+
+        InModuleScope ClaudeGuard -Parameters @{
+            CommandPath = $commandPath
+            Arguments = $arguments
+        } {
+            $captured = Invoke-GuardCapturedProcess `
+                -CommandPath $CommandPath `
+                -Arguments $Arguments `
+                -Environment ([Environment]::GetEnvironmentVariables()) `
+                -MaxOutputCharacters 512
+
+            $captured.Success | Should -BeTrue
+            $captured.OutputLimitExceeded | Should -BeTrue
+            $captured.StdOut.Length | Should -BeLessOrEqual 512
+            $captured.StdErr.Length | Should -BeLessOrEqual 512
         }
     }
 }

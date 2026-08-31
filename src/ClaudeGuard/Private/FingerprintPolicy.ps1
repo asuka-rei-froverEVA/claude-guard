@@ -60,6 +60,24 @@ function Find-GuardClientFingerprintMarker {
     }
 }
 
+function Test-GuardFingerprintTimeZoneActive {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$TimeZoneId
+    )
+
+    if ($TimeZoneId -in @('Asia/Shanghai', 'Asia/Urumqi')) {
+        return $true
+    }
+
+    $ianaId = $null
+    if ([TimeZoneInfo]::TryConvertWindowsIdToIanaId($TimeZoneId, [ref]$ianaId)) {
+        return $ianaId -in @('Asia/Shanghai', 'Asia/Urumqi')
+    }
+    $false
+}
+
 function Test-GuardClientFingerprint {
     [CmdletBinding()]
     param(
@@ -120,7 +138,7 @@ function Test-GuardClientFingerprint {
         -not [string]::IsNullOrWhiteSpace([string]$environmentValues['ANTHROPIC_BASE_URL'])) {
         $activationReasons += 'base_url_present'
     }
-    if ($TimeZoneId -in @('Asia/Shanghai', 'Asia/Urumqi')) {
+    if (Test-GuardFingerprintTimeZoneActive -TimeZoneId $TimeZoneId) {
         $activationReasons += 'timezone'
     }
 
