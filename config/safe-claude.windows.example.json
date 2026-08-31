@@ -1,5 +1,5 @@
 {
-  "command": "C:\\Users\\your-name\\AppData\\Roaming\\npm\\claude.cmd",
+  "command": "C:\\Users\\your-name\\.local\\bin\\claude.exe",
   "config_dir": "C:\\Users\\your-name\\.claude-official",
   "allowed_ips": [
     "203.0.113.10"
