@@ -1,0 +1,19 @@
+{
+  "command": "C:\\Users\\your-name\\AppData\\Roaming\\npm\\claude.cmd",
+  "config_dir": "C:\\Users\\your-name\\.claude-official",
+  "allowed_ips": [
+    "203.0.113.10"
+  ],
+  "allowed_cidrs": [
+    "203.0.113.0/24"
+  ],
+  "client_version": "replace-with-claude-version",
+  "client_sha256": "replace-with-64-character-sha256",
+  "client_macos_team_id": "",
+  "blocked_plugins": [
+    "codex@openai-codex"
+  ],
+  "blocked_models": [],
+  "require_unpinned_model": false,
+  "notify": false
+}

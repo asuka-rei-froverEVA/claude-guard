@@ -1,5 +1,7 @@
 Set-StrictMode -Version Latest
 
+$script:ClaudeGuardModuleVersion = '0.1.0'
+
 $sourceDirectories = @('Private', 'Public')
 foreach ($sourceDirectory in $sourceDirectories) {
     $directoryPath = Join-Path $PSScriptRoot $sourceDirectory

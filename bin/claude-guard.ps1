@@ -23,6 +23,27 @@ if ($GuardArguments.Count -eq 1 -and $GuardArguments[0] -eq '--version') {
     exit 0
 }
 
+if ($GuardArguments.Count -ge 1 -and $GuardArguments[0] -eq 'status') {
+    $statusArguments = @($GuardArguments | Select-Object -Skip 1)
+    $json = $false
+    if ($statusArguments.Count -eq 1 -and $statusArguments[0] -eq '--json') {
+        $json = $true
+    }
+    elseif ($statusArguments.Count -gt 0) {
+        [Console]::Error.WriteLine(
+            'CG_USAGE_INVALID: status accepts only the optional --json argument.'
+        )
+        exit 2
+    }
+
+    $result = Get-ClaudeGuardStatus
+    & $module {
+        param($GuardResult, $AsJson)
+        Write-GuardResult -Result $GuardResult -Json:$AsJson
+    } $result $json
+    exit $result.exit_code
+}
+
 [Console]::Error.WriteLine(
     'CG_WINDOWS_NOT_IMPLEMENTED: native Windows preflight commands are still being assembled on this branch.'
 )

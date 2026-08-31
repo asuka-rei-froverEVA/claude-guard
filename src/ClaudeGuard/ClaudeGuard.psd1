@@ -7,7 +7,7 @@
     Copyright         = '(c) Claude Guard contributors. MIT licensed.'
     Description       = 'Native Windows security preflight for the official Claude Code CLI.'
     PowerShellVersion = '7.4'
-    FunctionsToExport = @()
+    FunctionsToExport = @('Get-ClaudeGuardStatus')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()
